@@ -1,7 +1,7 @@
 [project]
-name = "blank-app-template"
+name = "strike-desk"
 version = "0.1.0"
-description = "A simple Streamlit app template."
+description = "Live fair odds for Kalshi 15-minute crypto markets."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

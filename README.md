@@ -1,25 +1,40 @@
-# 🎈 Blank app template
+# Strike Desk
 
-A simple Streamlit app template for you to modify!
+Live fair odds for Kalshi's 15-minute crypto markets (BTC, ETH, SOL, XRP, DOGE, NEAR).
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+The app pulls Kalshi's target price and Yes/No asks and Crypto.com spot and candles
+server-side every 1–10 seconds (2 s by default). It prices each market with a
+random-walk model of the final-minute settlement average, blends that with Kalshi's
+own odds, and shows the edge after Kalshi's fee. Logged calls settle automatically
+from Kalshi's published results.
 
-### How to run it on your own machine
+It is a research tool. Backtests against Kalshi's real prices found no reliable edge
+for most markets; see the notes in the app.
 
-Prerequisite: install `uv` if you don't already have it.
+## Run it
+
+Install [`uv`](https://docs.astral.sh/uv/), then:
 
 ```
-$ curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
+uv run streamlit run streamlit_app.py
 ```
 
-1. Sync the dependencies
+No API keys are needed; both Kalshi's and Crypto.com's market data endpoints are public.
 
-   ```
-   $ uv sync
-   ```
+## Journal storage
 
-2. Run the app
+The journal is a SQLite file at `data/journal.sqlite3` (override with `STRIKE_DESK_DB`).
+On Streamlit Community Cloud that file is wiped whenever the app restarts or redeploys,
+so use **Download CSV** to keep a copy.
 
-   ```
-   $ uv run streamlit run streamlit_app.py
-   ```
+## Tools
+
+- `tools/grade_strike_desk.py` replays the model against settled Kalshi markets.
+- `tools/kalshi_bridge.py` snapshots live Kalshi quotes as JSON (used by the earlier artifact relay).
+
+## Tests
+
+```
+uv run python -m unittest discover -s tests -t .
+```
