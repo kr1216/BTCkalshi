@@ -5,6 +5,7 @@ when the app is rebuilt or restarted; export the CSV to keep a copy.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import sqlite3
 import time
@@ -17,15 +18,28 @@ create table if not exists journal (
   at real not null, asset text not null, side text not null, price real not null,
   fair_win real not null, strike real, spot real, close real not null, ticker text,
   outcome integer, settled_by text, settle_value real
+);
+create table if not exists signals (
+  id integer primary key autoincrement,
+  at real not null, asset text not null, close real not null, side text not null,
+  price real not null, fair_win real not null, edge real not null, s_left real not null, ticker text,
+  outcome integer, settle_value real,
+  unique (asset, close, side)
 )"""
 
 
-def _conn() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _conn():
+    """A connection that commits on success and is always closed."""
     os.makedirs(os.path.dirname(PATH), exist_ok=True)
     c = sqlite3.connect(PATH)
-    c.row_factory = sqlite3.Row
-    c.execute(SCHEMA)
-    return c
+    try:
+        c.row_factory = sqlite3.Row
+        c.executescript(SCHEMA)
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def add(asset: str, side: str, price: float, fair_win: float, strike: float, spot: float, close: float, ticker: str | None) -> None:
@@ -52,3 +66,28 @@ def settle(row_id: int, outcome: int, by: str, value: float | None = None) -> No
 def delete(row_id: int) -> None:
     with _conn() as c:
         c.execute("delete from journal where id=?", (row_id,))
+
+
+# ---------- signals: every UP/DOWN call the dashboard makes, first time per market and side ----------
+def record_signal(asset: str, close: float, side: str, price: float, fair_win: float, edge: float,
+                  s_left: float, ticker: str | None) -> bool:
+    """Store a call; returns True if it is new for this market and side."""
+    with _conn() as c:
+        cur = c.execute("insert or ignore into signals (at, asset, close, side, price, fair_win, edge, s_left, ticker)"
+                        " values (?,?,?,?,?,?,?,?,?)", (time.time(), asset, close, side, price, fair_win, edge, s_left, ticker))
+        return cur.rowcount == 1
+
+
+def signals(limit: int = 500) -> list[dict]:
+    with _conn() as c:
+        return [dict(r) for r in c.execute("select * from signals order by at desc limit ?", (limit,))]
+
+
+def open_signals() -> list[dict]:
+    with _conn() as c:
+        return [dict(r) for r in c.execute("select * from signals where outcome is null")]
+
+
+def settle_signal(row_id: int, outcome: int, value: float | None) -> None:
+    with _conn() as c:
+        c.execute("update signals set outcome=?, settle_value=? where id=?", (outcome, value, row_id))

@@ -52,5 +52,63 @@ class JournalTest(unittest.TestCase):
             self.assertEqual(journal.rows(), [])
 
 
+
+class SignalTest(unittest.TestCase):
+    CLOSE = 1_790_439_300.0
+
+    def market(self, now, spot, yes_ask, no_ask, target=100.0, fetched=None):
+        from strike_desk.feeds import Quote
+        q = Quote("KXSOL15M-T", self.CLOSE - 900, self.CLOSE, target, yes_ask - .01, yes_ask, no_ask - .01, no_ask,
+                  fetched if fetched is not None else now)
+        # 35 closed 1-minute candles wobbling by 0.05 around 100
+        candles = [(now - 60 * (36 - i), 100.0, 100.0 + (0.05 if i % 2 else 0.0)) for i in range(36)]
+        return q, (spot, now), candles
+
+    def call(self, s_left, spot, yes_ask, no_ask, **kw):
+        from strike_desk.signal import Settings, evaluate
+        now = self.CLOSE - s_left
+        q, sp, cs = self.market(now, spot, yes_ask, no_ask, **kw)
+        return evaluate("SOL", now, q, sp, cs, [], Settings.default("SOL"))
+
+    def test_takes_up_when_yes_is_cheap(self):
+        c = self.call(300, 100.3, 0.40, 0.62)
+        self.assertEqual((c.action, c.side, c.price), ("UP", "YES", 0.40))
+        self.assertGreaterEqual(c.edge, 0.03)
+
+    def test_takes_down_when_no_is_cheap(self):
+        c = self.call(300, 99.7, 0.62, 0.40)
+        self.assertEqual((c.action, c.side), ("DOWN", "NO"))
+
+    def test_waits_when_priced_fairly(self):
+        c = self.call(300, 100.0, 0.51, 0.51)
+        self.assertEqual(c.action, "WAIT")
+        self.assertFalse(c.is_signal)
+
+    def test_stale_kalshi_quote_is_not_used(self):
+        c = self.call(300, 100.3, 0.40, 0.62, fetched=self.CLOSE - 300 - 60)
+        self.assertEqual(c.action, "LEAN UP")
+
+    def test_no_calls_in_first_two_minutes(self):
+        self.assertEqual(self.call(850, 100.3, 0.40, 0.62).action, "WAIT")
+
+    def test_decided_market_waits(self):
+        c = self.call(200, 101.0, 0.999, 1.0)
+        self.assertEqual((c.action, c.why), ("WAIT", "Market is all but decided"))
+
+    def test_last_seconds_wait(self):
+        self.assertEqual(self.call(10, 100.3, 0.40, 0.62).why, "Too late: last 20 s")
+
+    def test_signal_recorded_once_and_settled(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.environ["STRIKE_DESK_DB"] = os.path.join(d, "j.sqlite3")
+            from strike_desk import journal
+            importlib.reload(journal)
+            self.assertTrue(journal.record_signal("SOL", self.CLOSE, "YES", 0.4, 0.5, 0.08, 300, "T"))
+            self.assertFalse(journal.record_signal("SOL", self.CLOSE, "YES", 0.38, 0.5, 0.1, 250, "T"))
+            (r,) = journal.open_signals()
+            journal.settle_signal(r["id"], 1, 100.4)
+            self.assertEqual(journal.signals()[0]["outcome"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

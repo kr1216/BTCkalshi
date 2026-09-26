@@ -1,12 +1,16 @@
 # Strike Desk
 
-Live fair odds for Kalshi's 15-minute crypto markets (BTC, ETH, SOL, XRP, DOGE, NEAR).
+Live UP/DOWN calls for Kalshi's 15-minute crypto markets (BTC, ETH, SOL, XRP, DOGE, NEAR).
 
-The app pulls Kalshi's target price and Yes/No asks and Crypto.com spot and candles
-server-side every 1–10 seconds (2 s by default). It prices each market with a
-random-walk model of the final-minute settlement average, blends that with Kalshi's
-own odds, and shows the edge after Kalshi's fee. Logged calls settle automatically
-from Kalshi's published results.
+A background poller pulls Kalshi's target price and Yes/No asks and Crypto.com spot
+for every market once a second. Each market is priced with a random-walk model of
+the final-minute settlement average, blended with Kalshi's own odds, and the board
+shows **TAKE UP**, **TAKE DOWN** or **WAIT** for all six at once, with a pop-up and
+optional chime when a new call appears.
+
+Every call is recorded and scored against Kalshi's result in the **Call record**, so
+you can see whether the calls actually make money before trusting them. Trades you
+log yourself settle automatically too.
 
 It is a research tool. Backtests against Kalshi's real prices found no reliable edge
 for most markets; see the notes in the app.

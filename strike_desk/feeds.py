@@ -91,3 +91,51 @@ def record_print(asset: str, t: float, price: float) -> None:
 def prints_between(asset: str, start: float, end: float) -> list[float]:
     with _lock:
         return [p for t, p in _prints[asset] if start <= t < end]
+
+
+class Poller:
+    """Polls every market in the background so pages read a ready snapshot instead of waiting on the network.
+
+    Kalshi quotes and spot are fetched every `every` seconds, candles every `candle_every`,
+    all markets in parallel. One poller serves every viewer of the app.
+    """
+
+    def __init__(self, assets: list[str], every: float = 1.0, candle_every: float = 15.0):
+        from concurrent.futures import ThreadPoolExecutor
+        self.assets, self.every, self.candle_every = assets, every, candle_every
+        self.quotes: dict[str, Quote | None] = {}
+        self.spots: dict[str, tuple[float, float]] = {}
+        self.candles: dict[str, list] = {}
+        self.errors: dict[str, str | None] = {a: None for a in assets}
+        self.updated = 0.0
+        self._pool = ThreadPoolExecutor(len(assets) * 3, thread_name_prefix="poll")
+        self._last_candles = 0.0
+        threading.Thread(target=self._run, daemon=True, name="strike-desk-poller").start()
+
+    def _one(self, asset: str, with_candles: bool) -> None:
+        errs = []
+        for name, fn in (("Kalshi", lambda: kalshi_quote(asset)), ("spot", lambda: spot(asset)),
+                         *((("candles", lambda: candles(asset)),) if with_candles else ())):
+            try:
+                v = fn()
+            except Exception as e:  # keep the last good value; report the error
+                errs.append(f"{name}: {type(e).__name__}")
+                continue
+            if name == "Kalshi":
+                self.quotes[asset] = v
+            elif name == "spot":
+                self.spots[asset] = v
+                record_print(asset, v[1], v[0])
+            else:
+                self.candles[asset] = v
+        self.errors[asset] = ", ".join(errs) or None
+
+    def _run(self) -> None:
+        while True:
+            t0 = time.time()
+            with_candles = t0 - self._last_candles >= self.candle_every
+            list(self._pool.map(lambda a: self._one(a, with_candles), self.assets))
+            if with_candles:
+                self._last_candles = t0
+            self.updated = time.time()
+            time.sleep(max(0.0, self.every - (time.time() - t0)))
